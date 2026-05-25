@@ -65,28 +65,54 @@ async function compressImage(file, maxWidth = 1000, quality = 0.8) {
     });
 }
 
-async function uploadToImgBB(base64DataUrl) {
-    const IMGBB_API_KEY = "7fa910ddeffb3ce5937e0b4ff50246c8";
-    const base64String = base64DataUrl.split(',')[1];
-    const formData = new FormData();
-    formData.append("image", base64String);
+// === دالة الرفع الجديدة عبر Bunny.net ===
+async function uploadToBunny(base64DataUrl) {
+    const STORAGE_ZONE_NAME = "2222";
+    const ACCESS_KEY = "4777a31f-e6fe-4288-8180acda8543-7590-4b06";
+    
+    // -----------------------------------------------------
+    // تنبيه هام: ضع رابط الـ Pull Zone الخاص بك هنا بعد إنشائه!
+    // -----------------------------------------------------
+    const PULL_ZONE_URL = "https://tufahat2222.b-cdn.net"; 
+
+    // تحويل الصورة المضغوطة إلى ملف يمكن رفعه
+    const response = await fetch(base64DataUrl);
+    const blob = await response.blob();
+    
+    // إنشاء اسم عشوائي للصورة بصيغة jpg
+    const fileName = Date.now() + "_" + Math.floor(Math.random() * 1000) + ".jpg";
+    
+    // رابط الرفع الخاص بسيرفر ألمانيا الموضح بالصورة
+    const uploadUrl = `https://storage.bunnycdn.com/${STORAGE_ZONE_NAME}/${fileName}`;
+
     try {
-        const response = await fetch(`https://api.imgbb.com/1/upload?key=${IMGBB_API_KEY}`, {
-            method: "POST",
-            body: formData
+        const uploadResponse = await fetch(uploadUrl, {
+            method: 'PUT',
+            headers: {
+                'AccessKey': ACCESS_KEY,
+                'Content-Type': 'application/octet-stream',
+            },
+            body: blob
         });
-        const result = await response.json();
-        return result.success ? result.data.url : null;
+
+        if (uploadResponse.ok) {
+            // إرجاع الرابط النهائي الذي سيتم حفظه في الداتا بيس
+            return `${PULL_ZONE_URL}/${fileName}`;
+        } else {
+            console.error("Bunny.net Error:", await uploadResponse.text());
+            return null;
+        }
     } catch (error) {
-        console.error("ImgBB Error:", error);
+        console.error("Upload Error:", error);
         return null;
     }
 }
 
 async function uploadImageGetUrl(file, maxWidth = 1000, quality = 0.8) {
     const compressed = await compressImage(file, maxWidth, quality);
-    const url = await uploadToImgBB(compressed);
-    if (!url) throw new Error('فشل رفع الصورة إلى ImgBB');
+    // تم استبدال ImgBB بدالة Bunny
+    const url = await uploadToBunny(compressed);
+    if (!url) throw new Error('فشل رفع الصورة إلى سيرفرات Bunny.net');
     return url;
 }
 
@@ -119,7 +145,6 @@ window.switchTab = (tabId) => {
     if(tabId === 'sales') loadSales();
 };
 
-// === الأقسام: 400px / 70% ===
 window.saveCategory = async () => {
     const id = document.getElementById('cat-id').value;
     const name = document.getElementById('cat-name').value;
@@ -171,7 +196,6 @@ window.loadCategoriesForSelect = async () => {
     snapshot.forEach(docSnap => { select.innerHTML += `<option value="${docSnap.data().name}">${docSnap.data().name}</option>`; });
 };
 
-// === المنتجات: 800px / 75% ===
 window.saveProduct = async () => {
     const id = document.getElementById('prod-id').value;
     const name = document.getElementById('prod-name').value;
@@ -276,7 +300,6 @@ window.removeDiscount = async (id, originalPrice) => {
     loadDiscountProducts();
 };
 
-// === العروض: 900px / 75% ===
 window.saveOffer = async () => {
     const files = document.getElementById('offer-img').files;
     const btn = document.getElementById('btn-save-offer');
@@ -301,7 +324,6 @@ window.loadOffers = async () => {
     });
 };
 
-// === البنرات: 1200px / 80% (بدون تغيير) ===
 window.saveBanner = async () => {
     const files = document.getElementById('banner-img').files;
     const btn = document.getElementById('btn-save-banner');
