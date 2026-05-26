@@ -69,20 +69,13 @@ async function compressImage(file, maxWidth = 1000, quality = 0.8) {
 async function uploadToBunny(base64DataUrl) {
     const STORAGE_ZONE_NAME = "2222";
     const ACCESS_KEY = "4777a31f-e6fe-4288-8180acda8543-7590-4b06";
-    
-    // -----------------------------------------------------
-    // تنبيه هام: ضع رابط الـ Pull Zone الخاص بك هنا بعد إنشائه!
-    // -----------------------------------------------------
     const PULL_ZONE_URL = "https://tufahat2222.b-cdn.net"; 
 
-    // تحويل الصورة المضغوطة إلى ملف يمكن رفعه
     const response = await fetch(base64DataUrl);
     const blob = await response.blob();
     
-    // إنشاء اسم عشوائي للصورة بصيغة jpg
     const fileName = Date.now() + "_" + Math.floor(Math.random() * 1000) + ".jpg";
     
-    // رابط الرفع الخاص بسيرفر ألمانيا الموضح بالصورة
     const uploadUrl = `https://storage.bunnycdn.com/${STORAGE_ZONE_NAME}/${fileName}`;
 
     try {
@@ -96,7 +89,6 @@ async function uploadToBunny(base64DataUrl) {
         });
 
         if (uploadResponse.ok) {
-            // إرجاع الرابط النهائي الذي سيتم حفظه في الداتا بيس
             return `${PULL_ZONE_URL}/${fileName}`;
         } else {
             console.error("Bunny.net Error:", await uploadResponse.text());
@@ -110,7 +102,6 @@ async function uploadToBunny(base64DataUrl) {
 
 async function uploadImageGetUrl(file, maxWidth = 1000, quality = 0.8) {
     const compressed = await compressImage(file, maxWidth, quality);
-    // تم استبدال ImgBB بدالة Bunny
     const url = await uploadToBunny(compressed);
     if (!url) throw new Error('فشل رفع الصورة إلى سيرفرات Bunny.net');
     return url;
@@ -359,7 +350,21 @@ window.loadOrders = async (status) => {
         data.items?.forEach(item => {
             itemsHtml += `<div style="display:flex; gap:10px; margin-bottom:5px;"><img src="${item.image}" style="width:40px;height:40px;border-radius:5px;"><span>${item.name} (${item.qty})</span></div>`;
         });
-        list.innerHTML += `<div class="card-3d" style="text-align:right;"><div><strong>الاسم:</strong> ${data.name}</div><div><strong>الهاتف:</strong> ${data.phone}</div><div style="margin:10px 0;">${itemsHtml}</div><div style="color:#FF6B6B;">الإجمالي: ${data.total} د.ع</div><div style="margin-top:10px;"><button class="btn-action delete" onclick="deleteDocItem('orders', '${docSnap.id}', null, () => loadOrders('${status}'))">حذف</button>${status === 'pending' ? `<button class="btn-action accept" onclick="acceptOrder('${docSnap.id}')">قبول</button>` : ''}</div></div>`;
+        
+        // السطر الخاص بإضافة العنوان
+        const addressHtml = data.address ? `<div><strong>العنوان:</strong> ${data.address}</div>` : '';
+
+        list.innerHTML += `<div class="card-3d" style="text-align:right;">
+            <div><strong>الاسم:</strong> ${data.name}</div>
+            <div><strong>الهاتف:</strong> ${data.phone}</div>
+            ${addressHtml}
+            <div style="margin:10px 0;">${itemsHtml}</div>
+            <div style="color:#FF6B6B;">الإجمالي: ${data.total} د.ع</div>
+            <div style="margin-top:10px;">
+                <button class="btn-action delete" onclick="deleteDocItem('orders', '${docSnap.id}', null, () => loadOrders('${status}'))">حذف</button>
+                ${status === 'pending' ? `<button class="btn-action accept" onclick="acceptOrder('${docSnap.id}')">قبول</button>` : ''}
+            </div>
+        </div>`;
     });
 };
 
