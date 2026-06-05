@@ -16,6 +16,51 @@ const app = initializeApp(CONFIG.FIREBASE_CONFIG);
 const db = getFirestore(app);
 let allProducts = [];
 
+// === إعدادات حالات الطلب الجديدة ===
+const ACTIVE_ORDER_STATUSES = ['accepted', 'preparing', 'on_the_way'];
+const ORDER_STATUS_LABELS = {
+    pending: 'قيد الانتظار',
+    accepted: 'تمت الموافقة',
+    preparing: 'قيد التجهيز',
+    on_the_way: 'في التوصيل'
+};
+
+const formatOrderDateTime = (value) => {
+    if (!value) return 'غير متوفر';
+    let date = null;
+    if (typeof value?.toDate === 'function') {
+        date = value.toDate();
+    } else if (typeof value === 'string' || typeof value === 'number') {
+        date = new Date(value);
+    } else if (value?.seconds) {
+        date = new Date(value.seconds * 1000);
+    }
+    if (!date || Number.isNaN(date.getTime())) return 'غير متوفر';
+    return new Intl.DateTimeFormat('ar-IQ', {
+        dateStyle: 'medium',
+        timeStyle: 'short'
+    }).format(date);
+};
+
+const getOrderStatusLabel = (status) => ORDER_STATUS_LABELS[status] || status || 'غير معروف';
+
+const buildOrderActionButtons = (id, status, reloadStatus) => {
+    const buttons = [];
+    if (status === 'pending') {
+        buttons.push(`<button class="btn-action accept" onclick="window.updateOrderStatus('${id}', 'accepted', '${reloadStatus}')">موافقة</button>`);
+        buttons.push(`<button class="btn-action edit" onclick="window.updateOrderStatus('${id}', 'preparing', '${reloadStatus}')">قيد التجهيز</button>`);
+        buttons.push(`<button class="btn-action edit" onclick="window.updateOrderStatus('${id}', 'on_the_way', '${reloadStatus}')">في التوصيل</button>`);
+    } else if (status === 'accepted') {
+        buttons.push(`<button class="btn-action edit" onclick="window.updateOrderStatus('${id}', 'preparing', '${reloadStatus}')">قيد التجهيز</button>`);
+        buttons.push(`<button class="btn-action edit" onclick="window.updateOrderStatus('${id}', 'on_the_way', '${reloadStatus}')">في التوصيل</button>`);
+    } else if (status === 'preparing') {
+        buttons.push(`<button class="btn-action edit" onclick="window.updateOrderStatus('${id}', 'on_the_way', '${reloadStatus}')">في التوصيل</button>`);
+    }
+    buttons.push(`<button class="btn-action delete" onclick="deleteDocItem('orders', '${id}', null, () => window.loadOrders('${reloadStatus}'))">حذف</button>`);
+    return buttons.join(' ');
+};
+
+// === التنبيهات المنبثقة ===
 window.showCustomAlert = (message) => {
     const alertBox = document.createElement('div');
     alertBox.innerHTML = `<i class="fa-solid fa-circle-check" style="font-size: 1.5rem; margin-bottom: 5px;"></i><br>${message}`;
@@ -42,6 +87,7 @@ window.showCustomAlert = (message) => {
     }, 3000);
 };
 
+// === معالجة ورفع الصور ===
 async function compressImage(file, maxWidth = 1000, quality = 0.8) {
     if (!file) return null;
     return new Promise((resolve, reject) => {
@@ -65,7 +111,6 @@ async function compressImage(file, maxWidth = 1000, quality = 0.8) {
     });
 }
 
-// === دالة الرفع الجديدة عبر Bunny.net ===
 async function uploadToBunny(base64DataUrl) {
     const STORAGE_ZONE_NAME = "2222";
     const ACCESS_KEY = "4777a31f-e6fe-4288-8180acda8543-7590-4b06";
@@ -107,6 +152,7 @@ async function uploadImageGetUrl(file, maxWidth = 1000, quality = 0.8) {
     return url;
 }
 
+// === إدارة الدخول والتبويبات ===
 window.verifyAdmin = () => {
     const pass = document.getElementById('admin-pass').value;
     if (pass === '1001') {
@@ -132,10 +178,11 @@ window.switchTab = (tabId) => {
     if(tabId === 'discount-offers') loadDiscountProducts();
     if(tabId === 'banners') loadBanners();
     if(tabId === 'orders') loadOrders('pending');
-    if(tabId === 'accepted-orders') loadOrders('accepted');
+    if(tabId === 'accepted-orders') loadOrders('accepted'); // سيعرض كل الطلبات النشطة تلقائياً
     if(tabId === 'sales') loadSales();
 };
 
+// === الأقسام ===
 window.saveCategory = async () => {
     const id = document.getElementById('cat-id').value;
     const name = document.getElementById('cat-name').value;
@@ -187,6 +234,7 @@ window.loadCategoriesForSelect = async () => {
     snapshot.forEach(docSnap => { select.innerHTML += `<option value="${docSnap.data().name}">${docSnap.data().name}</option>`; });
 };
 
+// === المنتجات ===
 window.saveProduct = async () => {
     const id = document.getElementById('prod-id').value;
     const name = document.getElementById('prod-name').value;
@@ -250,6 +298,7 @@ window.editProduct = (id, name, cat, desc, price) => {
     window.scrollTo(0, 0);
 };
 
+// === الخصومات ===
 window.loadDiscountProducts = async () => {
     const selectList = document.getElementById('discount-products-select-list');
     const discountList = document.getElementById('discounted-products-list');
@@ -291,6 +340,7 @@ window.removeDiscount = async (id, originalPrice) => {
     loadDiscountProducts();
 };
 
+// === العروض والبنرات ===
 window.saveOffer = async () => {
     const files = document.getElementById('offer-img').files;
     const btn = document.getElementById('btn-save-offer');
@@ -339,9 +389,13 @@ window.loadBanners = async () => {
     });
 };
 
+// === إدارة الطلبات والمبيعات (محدثة) ===
 window.loadOrders = async (status) => {
     const list = document.getElementById(status === 'pending' ? 'orders-list' : 'accepted-orders-list');
-    const q = query(collection(db, "orders"), where("status", "==", status));
+    const q = status === 'pending'
+        ? query(collection(db, "orders"), where("status", "==", "pending"))
+        : query(collection(db, "orders"), where("status", "in", ACTIVE_ORDER_STATUSES));
+
     const snapshot = await getDocs(q);
     list.innerHTML = '';
     snapshot.forEach(docSnap => {
@@ -350,41 +404,54 @@ window.loadOrders = async (status) => {
         data.items?.forEach(item => {
             itemsHtml += `<div style="display:flex; gap:10px; margin-bottom:5px;"><img src="${item.image}" style="width:40px;height:40px;border-radius:5px;"><span>${item.name} (${item.qty})</span></div>`;
         });
-        
-        // السطر الخاص بإضافة العنوان
+
+        const createdAtHtml = `<div><strong>تاريخ الطلب:</strong> ${formatOrderDateTime(data.createdAt)}</div>`;
+        const updatedAtHtml = data.statusUpdatedAt ? `<div><strong>آخر تحديث:</strong> ${formatOrderDateTime(data.statusUpdatedAt)}</div>` : '';
         const addressHtml = data.address ? `<div><strong>العنوان:</strong> ${data.address}</div>` : '';
+        const statusHtml = `<div><strong>الحالة:</strong> ${getOrderStatusLabel(data.status)}</div>`;
 
         list.innerHTML += `<div class="card-3d" style="text-align:right;">
             <div><strong>الاسم:</strong> ${data.name}</div>
             <div><strong>الهاتف:</strong> ${data.phone}</div>
             ${addressHtml}
+            ${statusHtml}
+            ${createdAtHtml}
+            ${updatedAtHtml}
             <div style="margin:10px 0;">${itemsHtml}</div>
             <div style="color:#FF6B6B;">الإجمالي: ${data.total} د.ع</div>
-            <div style="margin-top:10px;">
-                <button class="btn-action delete" onclick="deleteDocItem('orders', '${docSnap.id}', null, () => loadOrders('${status}'))">حذف</button>
-                ${status === 'pending' ? `<button class="btn-action accept" onclick="acceptOrder('${docSnap.id}')">قبول</button>` : ''}
+            <div style="margin-top:10px; display:flex; flex-wrap:wrap; gap:8px; justify-content:flex-end;">
+                ${buildOrderActionButtons(docSnap.id, data.status, status)}
             </div>
         </div>`;
     });
 };
 
+window.updateOrderStatus = async (id, nextStatus, reloadStatus = 'accepted') => {
+    await updateDoc(doc(db, "orders", id), {
+        status: nextStatus,
+        statusUpdatedAt: serverTimestamp()
+    });
+    window.showCustomAlert(`تم تغيير الحالة إلى: ${getOrderStatusLabel(nextStatus)}`);
+    window.loadOrders(reloadStatus);
+};
+
 window.acceptOrder = async (id) => {
-    await updateDoc(doc(db, "orders", id), { status: 'accepted' });
-    loadOrders('pending');
+    await window.updateOrderStatus(id, 'accepted', 'pending');
 };
 
 window.loadSales = async () => {
     const list = document.getElementById('sales-list');
-    const q = query(collection(db, "orders"), where("status", "==", "accepted"));
+    // جلب كل الطلبات النشطة (مقبولة، قيد التجهيز، في التوصيل) لحساب المبيعات بدقة
+    const q = query(collection(db, "orders"), where("status", "in", ACTIVE_ORDER_STATUSES));
     const snapshot = await getDocs(q);
     let total = 0;
     snapshot.forEach(docSnap => { total += docSnap.data().total || 0; });
-    list.innerHTML = `<div class="card-3d" style="background:#2ecc71; color:white;"><h3>إجمالي المبيعات المقبولة</h3><h2>${total} د.ع</h2></div>`;
+    list.innerHTML = `<div class="card-3d" style="background:#2ecc71; color:white;"><h3>إجمالي المبيعات</h3><h2>${total} د.ع</h2></div>`;
 };
 
 window.resetSales = async () => {
-    if(!confirm('تصفير المبيعات؟')) return;
-    const q = query(collection(db, "orders"), where("status", "==", "accepted"));
+    if(!confirm('هل أنت متأكد من تصفير المبيعات وحذف كل الطلبات المقبولة والنشطة؟')) return;
+    const q = query(collection(db, "orders"), where("status", "in", ACTIVE_ORDER_STATUSES));
     const snapshot = await getDocs(q);
     snapshot.forEach(async d => await deleteDoc(doc(db, "orders", d.id)));
     loadSales();
@@ -393,5 +460,5 @@ window.resetSales = async () => {
 window.deleteDocItem = async (col, id, unused, cb) => {
     if(!confirm('متأكد من الحذف؟')) return;
     await deleteDoc(doc(db, col, id));
-    cb();
+    if(cb) cb();
 };
