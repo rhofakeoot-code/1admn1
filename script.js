@@ -407,7 +407,10 @@ window.loadOrders = async (status) => {
 
         const createdAtHtml = `<div><strong>تاريخ الطلب:</strong> ${formatOrderDateTime(data.createdAt)}</div>`;
         const updatedAtHtml = data.statusUpdatedAt ? `<div><strong>آخر تحديث:</strong> ${formatOrderDateTime(data.statusUpdatedAt)}</div>` : '';
-        const addressHtml = data.address ? `<div><strong>العنوان:</strong> ${data.address}</div>` : '';
+        
+        const addressValue = data.address || data.Address || data.location || data.Location;
+        const addressHtml = addressValue ? `<div><strong>العنوان:</strong> ${addressValue}</div>` : `<div><strong>العنوان:</strong> غير متوفر</div>`;
+        
         const statusHtml = `<div><strong>الحالة:</strong> ${getOrderStatusLabel(data.status)}</div>`;
 
         list.innerHTML += `<div class="card-3d" style="text-align:right;">
