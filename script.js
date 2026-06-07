@@ -1,5 +1,5 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-app.js";
-import { getFirestore, collection, addDoc, getDocs, getDoc, deleteDoc, updateDoc, doc, serverTimestamp, query, where } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-firestore.js";
+import { getFirestore, collection, addDoc, getDocs, getDoc, deleteDoc, updateDoc, doc, setDoc, serverTimestamp, query, where } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-firestore.js";
 
 const CONFIG = {
     FIREBASE_CONFIG: {
@@ -15,6 +15,19 @@ const CONFIG = {
 const app = initializeApp(CONFIG.FIREBASE_CONFIG);
 const db = getFirestore(app);
 let allProducts = [];
+
+async function bumpDataVersion() {
+    try {
+        await updateDoc(doc(db, "meta", "version"), {
+            updatedAt: Date.now()
+        });
+    } catch (e) {
+        // إذا المستند غير موجود، أنشئه
+        try {
+            await setDoc(doc(db, "meta", "version"), { updatedAt: Date.now() });
+        } catch (err) { console.error(err); }
+    }
+}
 
 // === إعدادات حالات الطلب الجديدة ===
 const ACTIVE_ORDER_STATUSES = ['accepted', 'preparing', 'on_the_way'];
@@ -202,6 +215,7 @@ window.saveCategory = async () => {
             await addDoc(collection(db, "categories"), { ...updateData, createdAt: serverTimestamp() });
         }
         showCustomAlert('تم حفظ القسم');
+        await bumpDataVersion();
         switchTab('categories');
         document.getElementById('cat-id').value = '';
         document.getElementById('cat-name').value = '';
@@ -266,6 +280,7 @@ window.saveProduct = async () => {
         else await addDoc(collection(db, "products"), { ...updateData, createdAt: serverTimestamp() });
 
         showCustomAlert('تم حفظ المنتج بنجاح');
+        await bumpDataVersion();
         switchTab('products');
         document.getElementById('prod-id').value = '';
         document.getElementById('prod-name').value = '';
@@ -332,11 +347,13 @@ window.applyDiscountToSelected = async () => {
         }
     }
     showCustomAlert('تم تطبيق الخصم');
+    await bumpDataVersion();
     loadDiscountProducts();
 };
 
 window.removeDiscount = async (id, originalPrice) => {
     await updateDoc(doc(db, "products", id), { price: originalPrice, originalPrice: null, hasDiscount: false, discountPercent: null });
+    await bumpDataVersion();
     loadDiscountProducts();
 };
 
@@ -351,6 +368,7 @@ window.saveOffer = async () => {
             await addDoc(collection(db, "offers"), { image: url, createdAt: serverTimestamp() });
         }
         showCustomAlert('تم حفظ العروض');
+        await bumpDataVersion();
         loadOffers();
     } catch(e) { showCustomAlert(e.message); }
     btn.innerHTML = 'حفظ العرض <i class="fa-solid fa-save"></i>';
@@ -375,6 +393,7 @@ window.saveBanner = async () => {
             await addDoc(collection(db, "banners"), { image: url, createdAt: serverTimestamp() });
         }
         showCustomAlert('تم حفظ البنرات');
+        await bumpDataVersion();
         loadBanners();
     } catch(e) { showCustomAlert(e.message); }
     btn.innerHTML = 'حفظ البنر <i class="fa-solid fa-save"></i>';
@@ -463,5 +482,6 @@ window.resetSales = async () => {
 window.deleteDocItem = async (col, id, unused, cb) => {
     if(!confirm('متأكد من الحذف؟')) return;
     await deleteDoc(doc(db, col, id));
+    await bumpDataVersion();
     if(cb) cb();
 };
