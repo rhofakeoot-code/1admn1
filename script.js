@@ -16,16 +16,27 @@ const app = initializeApp(CONFIG.FIREBASE_CONFIG);
 const db = getFirestore(app);
 let allProducts = [];
 
+// === تحديث إصدار البيانات (Incremental Sync) ===
 async function bumpDataVersion() {
     try {
-        await updateDoc(doc(db, "meta", "version"), {
-            updatedAt: Date.now()
+        await setDoc(doc(db, "meta", "version"), {
+            updatedAt: serverTimestamp()
+        }, { merge: true });
+    } catch (err) {
+        console.error('bumpDataVersion error:', err);
+    }
+}
+
+// === تسجيل سجل الحذف (Tombstone) للمزامنة التدريجية ===
+async function recordDeletion(collectionName, docId) {
+    try {
+        await setDoc(doc(db, "deletions", `${collectionName}_${docId}`), {
+            collection: collectionName,
+            docId: docId,
+            deletedAt: serverTimestamp()
         });
-    } catch (e) {
-        // إذا المستند غير موجود، أنشئه
-        try {
-            await setDoc(doc(db, "meta", "version"), { updatedAt: Date.now() });
-        } catch (err) { console.error(err); }
+    } catch (err) {
+        console.error('recordDeletion error:', err);
     }
 }
 
@@ -191,7 +202,7 @@ window.switchTab = (tabId) => {
     if(tabId === 'discount-offers') loadDiscountProducts();
     if(tabId === 'banners') loadBanners();
     if(tabId === 'orders') loadOrders('pending');
-    if(tabId === 'accepted-orders') loadOrders('accepted'); // سيعرض كل الطلبات النشطة تلقائياً
+    if(tabId === 'accepted-orders') loadOrders('accepted');
     if(tabId === 'sales') loadSales();
 };
 
@@ -205,12 +216,13 @@ window.saveCategory = async () => {
     btn.innerText = 'جاري الرفع...';
 
     try {
-        let updateData = { name };
+        let updateData = { name, updatedAt: serverTimestamp() };
         if (file) {
             updateData.image = await uploadImageGetUrl(file, 400, 0.7);
         }
-        if (id) await updateDoc(doc(db, "categories", id), updateData);
-        else {
+        if (id) {
+            await updateDoc(doc(db, "categories", id), updateData);
+        } else {
             if (!file) throw new Error('اختر صورة للقسم');
             await addDoc(collection(db, "categories"), { ...updateData, createdAt: serverTimestamp() });
         }
@@ -262,7 +274,13 @@ window.saveProduct = async () => {
     btn.innerText = 'جاري الرفع...';
 
     try {
-        let updateData = { name, category: cat, desc, price: Number(price) };
+        let updateData = {
+            name,
+            category: cat,
+            desc,
+            price: Number(price),
+            updatedAt: serverTimestamp()
+        };
 
         if (files.length > 0) {
             const url1 = await uploadImageGetUrl(files[0], 800, 0.75);
@@ -276,8 +294,11 @@ window.saveProduct = async () => {
             }
         }
 
-        if (id) await updateDoc(doc(db, "products", id), updateData);
-        else await addDoc(collection(db, "products"), { ...updateData, createdAt: serverTimestamp() });
+        if (id) {
+            await updateDoc(doc(db, "products", id), updateData);
+        } else {
+            await addDoc(collection(db, "products"), { ...updateData, createdAt: serverTimestamp() });
+        }
 
         showCustomAlert('تم حفظ المنتج بنجاح');
         await bumpDataVersion();
@@ -343,7 +364,13 @@ window.applyDiscountToSelected = async () => {
         if (product) {
             const originalPrice = product.price;
             const newPrice = Math.round(originalPrice - (originalPrice * (percent / 100)));
-            await updateDoc(doc(db, "products", product.id), { price: newPrice, originalPrice: originalPrice, hasDiscount: true, discountPercent: percent });
+            await updateDoc(doc(db, "products", product.id), {
+                price: newPrice,
+                originalPrice: originalPrice,
+                hasDiscount: true,
+                discountPercent: percent,
+                updatedAt: serverTimestamp()
+            });
         }
     }
     showCustomAlert('تم تطبيق الخصم');
@@ -352,7 +379,13 @@ window.applyDiscountToSelected = async () => {
 };
 
 window.removeDiscount = async (id, originalPrice) => {
-    await updateDoc(doc(db, "products", id), { price: originalPrice, originalPrice: null, hasDiscount: false, discountPercent: null });
+    await updateDoc(doc(db, "products", id), {
+        price: originalPrice,
+        originalPrice: null,
+        hasDiscount: false,
+        discountPercent: null,
+        updatedAt: serverTimestamp()
+    });
     await bumpDataVersion();
     loadDiscountProducts();
 };
@@ -365,7 +398,11 @@ window.saveOffer = async () => {
     try {
         for(let f of files) {
             const url = await uploadImageGetUrl(f, 900, 0.75);
-            await addDoc(collection(db, "offers"), { image: url, createdAt: serverTimestamp() });
+            await addDoc(collection(db, "offers"), {
+                image: url,
+                createdAt: serverTimestamp(),
+                updatedAt: serverTimestamp()
+            });
         }
         showCustomAlert('تم حفظ العروض');
         await bumpDataVersion();
@@ -390,7 +427,11 @@ window.saveBanner = async () => {
     try {
         for(let f of files) {
             const url = await uploadImageGetUrl(f, 1200, 0.8);
-            await addDoc(collection(db, "banners"), { image: url, createdAt: serverTimestamp() });
+            await addDoc(collection(db, "banners"), {
+                image: url,
+                createdAt: serverTimestamp(),
+                updatedAt: serverTimestamp()
+            });
         }
         showCustomAlert('تم حفظ البنرات');
         await bumpDataVersion();
@@ -408,7 +449,7 @@ window.loadBanners = async () => {
     });
 };
 
-// === إدارة الطلبات والمبيعات (محدثة) ===
+// === إدارة الطلبات والمبيعات ===
 window.loadOrders = async (status) => {
     const list = document.getElementById(status === 'pending' ? 'orders-list' : 'accepted-orders-list');
     const q = status === 'pending'
@@ -463,7 +504,6 @@ window.acceptOrder = async (id) => {
 
 window.loadSales = async () => {
     const list = document.getElementById('sales-list');
-    // جلب كل الطلبات النشطة (مقبولة، قيد التجهيز، في التوصيل) لحساب المبيعات بدقة
     const q = query(collection(db, "orders"), where("status", "in", ACTIVE_ORDER_STATUSES));
     const snapshot = await getDocs(q);
     let total = 0;
@@ -479,9 +519,19 @@ window.resetSales = async () => {
     loadSales();
 };
 
+// === الحذف مع تسجيل Tombstone للمزامنة التدريجية ===
 window.deleteDocItem = async (col, id, unused, cb) => {
     if(!confirm('متأكد من الحذف؟')) return;
+
+    // الطلبات لا تحتاج tombstone (لا تتزامن مع تطبيق الزبون)
+    const trackedCollections = ['products', 'categories', 'offers', 'banners'];
+
+    if (trackedCollections.includes(col)) {
+        await recordDeletion(col, id);
+    }
+
     await deleteDoc(doc(db, col, id));
     await bumpDataVersion();
     if(cb) cb();
 };
+ملخص التغييرات
